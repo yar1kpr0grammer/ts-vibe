@@ -104,8 +104,9 @@ async function publishIntoExisting(stagePath, project) {
   try {
     if (project.directoryPolicy === "clear") {
       await fs.mkdir(clearedRoot, { recursive: true });
+      const stageName = path.basename(stagePath);
       for (const entry of await fs.readdir(project.targetPath)) {
-        if (entry === ".git") continue;
+        if (entry === ".git" || entry === stageName) continue;
         await fs.rename(
           path.join(project.targetPath, entry),
           path.join(clearedRoot, entry),
@@ -140,28 +141,45 @@ async function publishIntoExisting(stagePath, project) {
 export async function executeTransaction(project, { onStep = () => {} } = {}) {
   const parent = path.dirname(project.targetPath);
   await fs.mkdir(parent, { recursive: true });
-  let stagePath = await fs.mkdtemp(
-    path.join(parent, `.ts-vibe-stage-${project.name}-`),
-  );
+
+  const targetExists = await exists(project.targetPath);
+  if (targetExists && project.directoryPolicy === "create") {
+    throw new Error("The target directory appeared during generation");
+  }
+
+  const createdTarget = !targetExists;
+  if (createdTarget) {
+    await fs.mkdir(project.targetPath);
+  }
+
+  let stagePath;
+  let completed = false;
 
   try {
+    stagePath = await fs.mkdtemp(
+      path.join(project.targetPath, ".ts-vibe-stage-"),
+    );
     await prepareStage(stagePath, project, onStep);
     onStep(project.language?.step_publish ?? "Publish project");
 
-    if (!(await exists(project.targetPath))) {
-      await fs.rename(stagePath, project.targetPath);
-      stagePath = null;
-      return;
+    if (createdTarget) {
+      for (const entry of await fs.readdir(stagePath)) {
+        await fs.rename(
+          path.join(stagePath, entry),
+          path.join(project.targetPath, entry),
+        );
+      }
+    } else {
+      await publishIntoExisting(stagePath, project);
     }
 
-    if (project.directoryPolicy === "create") {
-      throw new Error("The target directory appeared during generation");
-    }
-
-    await publishIntoExisting(stagePath, project);
+    completed = true;
   } finally {
     if (stagePath) {
       await fs.rm(stagePath, { recursive: true, force: true });
+    }
+    if (createdTarget && !completed) {
+      await fs.rm(project.targetPath, { recursive: true, force: true });
     }
   }
 }

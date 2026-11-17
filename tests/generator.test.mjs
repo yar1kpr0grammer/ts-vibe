@@ -116,7 +116,7 @@ test("builds a modern ESLint feature plan", () => {
   assert.equal(planned.files[".eslintignore"], undefined);
 });
 
-test("creates a complete project through an atomic rename", async (t) => {
+test("creates a complete project through isolated staging", async (t) => {
   const root = await temporaryRoot(t);
   const target = path.join(root, "example");
 
@@ -128,6 +128,12 @@ test("creates a complete project through an atomic rename", async (t) => {
   assert.equal(packageJson.name, "example");
   assert.equal(packageJson.devDependencies.typescript, "~6.0.3");
   assert.match(await fs.readFile(path.join(target, "src/index.ts"), "utf8"), /Hello/);
+  assert.equal(
+    (await fs.readdir(target)).some((entry) =>
+      entry.startsWith(".ts-vibe-stage-"),
+    ),
+    false,
+  );
 });
 
 test("clear mode replaces files but preserves .git", async (t) => {
@@ -192,6 +198,31 @@ test("an installation failure leaves the target untouched", async (t) => {
     (await fs.readdir(root)).filter((entry) => entry.startsWith(".ts-vibe-")),
     [],
   );
+});
+
+test("an installation failure removes a newly created target", async (t) => {
+  const root = await temporaryRoot(t);
+  const target = path.join(root, "example");
+  const failingProject = {
+    directoryPolicy: "create",
+    files: {
+      "package.json": `${JSON.stringify({
+        name: "failing-project",
+        version: "1.0.0",
+        scripts: {
+          preinstall: 'node -e "process.exit(1)"',
+        },
+      })}\n`,
+    },
+    gitMode: "new",
+    install: true,
+    name: "example",
+    selectedFeatures: [],
+    targetPath: target,
+  };
+
+  await assert.rejects(executeTransaction(failingProject), /npm install failed/);
+  await assert.rejects(fs.access(target));
 });
 
 test("exec passes arguments literally without a shell", async () => {
