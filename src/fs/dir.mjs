@@ -6,6 +6,10 @@ async function clear(folderPath = ".") {
   const items = await fsPromises.readdir(folderPath);
 
   for (const item of items) {
+    if (item === ".git") {
+      continue;
+    }
+
     const fullPath = path.join(folderPath, item);
     await fsPromises.rm(fullPath, {
       recursive: true,
@@ -20,15 +24,7 @@ export function create(path) {
 
 export async function hasFiles(dirPath = ".") {
   const items = await fsPromises.readdir(dirPath);
-
-  for (const item of items) {
-    const fullPath = path.join(dirPath, item);
-    const stat = await fsPromises.stat(fullPath);
-    if (stat.isFile()) {
-      return true;
-    }
-  }
-  return false;
+  return items.some((item) => item !== ".git");
 }
 
 export default { clear, create, hasFiles };

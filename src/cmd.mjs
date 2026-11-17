@@ -1,57 +1,45 @@
-import chalk from "chalk";
-import { spawn } from "child_process";
-import readline from "readline";
+import { spawn } from "node:child_process";
+import process from "node:process";
 
-export function exec(command) {
+function executable(name) {
+  const commandShims = new Set(["npm", "npx", "pnpm", "yarn"]);
+  return process.platform === "win32" && commandShims.has(name)
+    ? `${name}.cmd`
+    : name;
+}
+
+export function exec(command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, {
-      shell: true,
+    const child = spawn(executable(command), args, {
+      cwd: options.cwd,
+      env: process.env,
+      shell: false,
       stdio: "pipe",
     });
-
     let stdout = "";
     let stderr = "";
 
-    child.stdout.on("data", (data) => {
-      stdout += data.toString();
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
     });
-
-    child.stderr.on("data", (data) => {
-      stderr += data.toString();
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
     });
-
-    child.on("close", (code) => {
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
       if (code === 0) {
         resolve(stdout);
-      } else {
-        reject(new Error(stderr || stdout));
+        return;
       }
-    });
 
-    child.on("error", (err) => {
-      reject(err);
+      const renderedCommand = [command, ...args].join(" ");
+      const reason = signal ? `signal ${signal}` : `exit code ${code}`;
+      const details = stderr.trim() || stdout.trim();
+      reject(
+        new Error(
+          `${renderedCommand} failed with ${reason}${details ? `\n${details}` : ""}`,
+        ),
+      );
     });
   });
-}
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-export const input = (prompt) =>
-  new Promise((resolve) => rl.question(chalk.bold(prompt), resolve));
-
-export async function ask(
-  prompt,
-  questionPrompt = " [y/n] ",
-  confirmVariants = ["y", "yes"],
-) {
-  const ans = await input(chalk.bold(prompt + questionPrompt));
-
-  return confirmVariants.includes(ans.trim().toLowerCase());
-}
-
-export function closeInput() {
-  rl.close();
 }
