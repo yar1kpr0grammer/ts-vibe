@@ -1,16 +1,52 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import process from "node:process";
 
-function executable(name) {
-  const commandShims = new Set(["npm", "npx", "pnpm", "yarn"]);
-  return process.platform === "win32" && commandShims.has(name)
-    ? `${name}.cmd`
-    : name;
+function findNpmCli() {
+  const candidates = [];
+  const npmExecPath = process.env.npm_execpath;
+
+  if (npmExecPath && path.basename(npmExecPath).toLowerCase() === "npm-cli.js") {
+    candidates.push(npmExecPath);
+  }
+
+  candidates.push(
+    path.join(
+      path.dirname(process.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js",
+    ),
+  );
+
+  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (directory) {
+      candidates.push(
+        path.join(directory, "node_modules", "npm", "bin", "npm-cli.js"),
+      );
+    }
+  }
+
+  return candidates.find((candidate) => fs.existsSync(candidate));
+}
+
+function invocation(command, args) {
+  if (process.platform === "win32" && command === "npm") {
+    const npmCli = findNpmCli();
+    if (npmCli) {
+      return { command: process.execPath, args: [npmCli, ...args] };
+    }
+  }
+
+  return { command, args };
 }
 
 export function exec(command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable(command), args, {
+    const resolved = invocation(command, args);
+    const child = spawn(resolved.command, resolved.args, {
       cwd: options.cwd,
       env: process.env,
       shell: false,
